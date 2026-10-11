@@ -1,0 +1,7 @@
+streamlit
+httpx
+pydantic>=2
+pytrends
+pandas<3  # pytrends is unmaintained; pandas 3 breaks it
+python-dotenv
+pytest
