@@ -131,7 +131,7 @@ def test_grounding_used(payload, text, expected):
 
 
 def test_grounding_used_follows_brand_override(payload):
-    p = payload.with_grounding(brand="Tylenol", disease_areas=["Headache"], competitors=["Advil"])
+    p = payload.model_copy(update={"grounding": payload.grounding.model_copy(update={"brand": "Tylenol", "diseaseAreas": ["Headache"], "competitors": ["Advil"]})})
     assert grounding_used("Is Tylenol better than Advil for my headaches?", p) == \
         ["brand", "competitors[0]", "diseaseAreas[0]"]
     assert grounding_used("Is Brandex safe?", p) == []

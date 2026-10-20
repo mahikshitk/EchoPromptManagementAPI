@@ -37,12 +37,15 @@ def angles_for(topic: str, audience: str, p: Payload) -> list[str]:
 
 def angle_orders(p: Payload, alloc: dict, seed: int | None = None) -> dict[tuple[str, str], list[str]]:
     """Each allocated pair's angles in a random order: batches take angles in this order, so every
-    run starts each pair on a different angle."""
+    run starts each pair on a different angle. A pair keeps one "vs" angle, its competitor picked at
+    random, so comparisons don't grow with the number of competitors."""
     rng = random.Random(seed)
     out = {}
     for a, t in p.pairs():
         if alloc[a.code, t.code]:
             angles = angles_for(t.code, a.code, p)
+            vs = [x for x in angles if x.startswith("vs ")]
+            angles = [x for x in angles if not x.startswith("vs ")] + ([rng.choice(vs)] if vs else [])
             out[a.code, t.code] = rng.sample(angles, len(angles))
     return out
 
@@ -105,7 +108,8 @@ def user_prompt(p: Payload, topic: Topic, angle: str, count: int, examples: list
         if angle.startswith("vs "):
             lines.append(f'- Every question compares {g.brand} with {angle[3:]}; set "competitor" to "{angle[3:]}".')
         else:
-            lines.append('- Set "competitor" to the competitor named in the question, else null.')
+            lines.append('- Name a competitor only if the angle is about competition, and set "competitor" to it; '
+                         'otherwise do not mention competitors and set "competitor" to null.')
     else:
         lines.append('- Do not mention competitors; "competitor" is always null.')
     lines.append(f"- Name {g.brand} in most questions." if tp["brand"] == "most" else
@@ -257,15 +261,12 @@ if __name__ == "__main__":
         ap.add_argument("--per-pair", type=int, help="override options.promptsPerPair")
         ap.add_argument("--no-sources", action="store_true", help="skip Autocomplete/Trends")
         ap.add_argument("--offline", action="store_true", help="use only stored Autocomplete/Trends results")
-        ap.add_argument("--stage", help="override grounding.stage, e.g. Pre-launch")
         ap.add_argument("--seed", type=int)
         ap.add_argument("--model")
         ap.add_argument("--out", help="output path (default output/<requestId>.json)")
         ap.add_argument("--dry-run", action="store_true", help="print the LLM prompts per pair, no calls")
 
     p, a = load_cli("Generate prompts end to end", extra)
-    if a.stage:
-        p = p.model_copy(update={"grounding": p.grounding.model_copy(update={"stage": a.stage})})
     opts = {k: v for k, v in {"maxPrompts": a.n, "promptsPerPair": a.per_pair}.items() if v is not None}
     if opts:  # re-validate so CLI overrides get the same limits as the API
         p = Payload.model_validate({**p.model_dump(), "options": {**p.options.model_dump(), **opts}})

@@ -130,31 +130,3 @@ def assemble(p: Payload, records: list[dict], now: datetime | None = None) -> Ou
             for i, r in enumerate(records, 1)
         ],
     )
-
-
-if __name__ == "__main__":
-    import json
-
-    from promptgen.schema import load_cli
-
-    p, a = load_cli("Run made-up LLM items through validation, dedup and assembly",
-                    lambda ap: ap.add_argument("--stage", help="override grounding.stage, e.g. Pre-launch"))
-    if a.stage:
-        p = p.model_copy(update={"grounding": p.grounding.model_copy(update={"stage": a.stage})})
-    b, c0 = p.grounding.brand, (p.grounding.competitors or ["Other"])[0]
-    items = [
-        {"text": f"Is {b} better than {c0} at clearing my skin?", "intent": "comparison", "competitor": c0},
-        {"text": f"Can I drink alcohol while taking {b}?", "intent": "side_effects", "competitor": None},
-        {"text": f"Can I drink alcohol while I'm taking {b}?", "intent": "side_effects", "competitor": None},
-        {"text": f"What are the side effects of {b}?", "intent": "side_effects", "competitor": None},
-        {"text": f"Is 40mg of {b} a normal dose?", "intent": "informational", "competitor": None},
-        {"text": f"My GP prescribed {b}, how long until it works?", "intent": "experience", "competitor": None},
-        {"text": f"How much will {b} cost me", "intent": "cost_access", "competitor": None},
-        {"text": f"Will {b} help my flare-ups?", "intent": "made_up_intent", "competitor": "Nope"},
-        "garbage",
-    ]
-    d = Deduper(p.do_not_repeat("patient"))
-    r = filter_batch(items, p, "patient", d, quota=10)
-    print(f"stage={p.grounding.stage}  accepted={len(r.accepted)}  rejected={dict(r.rejected)}  "
-          f"duplicates={r.duplicates}\n")
-    print(json.dumps(assemble(p, [{**x, "audience": "patient", "topic": "safety"} for x in r.accepted]).model_dump(), indent=2))

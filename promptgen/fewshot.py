@@ -29,7 +29,7 @@ def build_pool(questions: list[dict], p: Payload) -> list[dict]:
     """Tag relevant harvested questions, then add fallback examples: all of them if the pool is
     under MIN_POOL, otherwise only those for topics with fewer than MIN_PER_TOPIC examples."""
     pool = [{**q, "topic": tag(q["text"])} for q in questions if is_relevant(q["text"], p)]
-    counts = topic_counts(pool)
+    counts = Counter(q["topic"] for q in pool)
     short = {t for t in config.TOPIC_KEYWORDS if counts[t] < config.MIN_PER_TOPIC}
     disease = p.grounding.diseaseAreas[0].lower() if p.grounding.diseaseAreas else "my condition"
     seen = {q["text"].lower() for q in pool}
@@ -41,10 +41,6 @@ def build_pool(questions: list[dict], p: Payload) -> list[dict]:
             seen.add(text.lower())
             pool.append({"text": text, "source": "fallback", "seed": "", "topic": topic})
     return pool
-
-
-def topic_counts(pool: list[dict]) -> Counter:
-    return Counter(q["topic"] for q in pool)
 
 
 class Sampler:
@@ -81,26 +77,3 @@ class Sampler:
         ex += self._draw(config.GENERAL, total - len(ex), taken)
         ex += self._draw(self.ANY, total - len(ex), taken)
         return ex
-
-
-if __name__ == "__main__":
-    from promptgen.harvest import harvest
-    from promptgen.schema import load_cli
-
-    p, a = load_cli("Show the tagged reference pool and sample batches", lambda ap: ap.add_argument(
-        "--no-sources", action="store_true", help="skip Autocomplete/Trends (fallback only)"))
-    off = False if a.no_sources else None
-    pool = build_pool(harvest(p, off, off).questions, p)
-    print(f"brand={p.grounding.brand}  pool={len(pool)}  by topic={dict(topic_counts(pool))}")
-    print(f"sources={dict(Counter(q['source'] for q in pool))}\n")
-    for topic in config.TOPIC_KEYWORDS:
-        print(f"== {topic} ==")
-        for q in pool:
-            if q["topic"] == topic:
-                print("   ", q["text"])
-    s = Sampler(pool, seed=0)
-    for topic in config.TOPIC_KEYWORDS:
-        for i in range(2):
-            print(f"\n-- sample batch: {topic} #{i + 1} --")
-            for q in s.pick(topic):
-                print(f"  [{q['topic']:11}] {q['text']}")

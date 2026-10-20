@@ -107,7 +107,7 @@ def test_all_sources_off(payload, monkeypatch):
 
 
 def test_seeds_follow_brand_override(payload):
-    s = h.seeds(payload.with_grounding(brand="Tylenol", disease_areas=["Headache"]))
+    s = h.seeds(payload.model_copy(update={"grounding": payload.grounding.model_copy(update={"brand": "Tylenol", "diseaseAreas": ["Headache"]})}))
     assert "is tylenol" in s and "headache cost" in s
     assert not any("brandex" in x or "psoriasis" in x for x in s)
 

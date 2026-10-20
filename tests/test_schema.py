@@ -45,7 +45,7 @@ def test_warnings():
 
 def test_benchmark_parsed():
     b = Payload.model_validate(sample()).benchmark
-    assert b.hasBenchmark and [d.documentId for d in b.documents] == [901, 902]
+    assert b["hasBenchmark"] and [d["documentId"] for d in b["documents"]] == [901, 902]
     d = sample()
     del d["benchmark"]
     assert Payload.model_validate(d).benchmark is None
@@ -130,17 +130,3 @@ def test_output_schema():
         Output.model_validate({**doc, "prompts": [{**prompt, "intent": "nope"}]})
     with pytest.raises(ValidationError):  # debug fields must never leak into API output
         Output.model_validate({**doc, "prompts": [{**prompt, "angle": "alcohol"}]})
-
-
-def test_grounding_override():
-    p = Payload.model_validate(sample())
-    q = p.with_grounding(" Tylenol ", ["Headache", " "], [])
-    assert (q.grounding.brand, q.grounding.diseaseAreas, q.grounding.competitors) == ("Tylenol", ["Headache"], [])
-    assert q.grounding.stage == "Launched" and q.grounding.model_extra["brandId"] == 12
-    assert p.grounding.brand == "Brandex"  # original untouched
-    assert p.with_grounding().grounding == p.grounding
-
-
-def test_grounding_override_rejects_empty_brand():
-    with pytest.raises(ValueError):
-        Payload.model_validate(sample()).with_grounding(brand="  ")

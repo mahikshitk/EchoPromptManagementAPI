@@ -32,7 +32,10 @@ def test_angle_orders_rotate_between_runs(payload):
     a = g.angle_orders(payload, alloc, seed=1)
     assert a == g.angle_orders(payload, alloc, seed=1)
     assert a != g.angle_orders(payload, alloc, seed=2)
-    assert sorted(a["patient", "safety"]) == sorted(g.angles_for("safety", "patient", payload))
+    plain = [x for x in g.angles_for("safety", "patient", payload) if not x.startswith("vs ")]
+    got = a["patient", "safety"]
+    assert sorted(x for x in got if not x.startswith("vs ")) == sorted(plain)
+    assert sum(x.startswith("vs ") for x in got) == 1  # one comparison angle, whatever the competitor count
 
 
 def test_angles_competitors(payload):
@@ -107,7 +110,7 @@ class FakeLLM:
                 rnd = random.Random(self.n)  # random words: far below the 0.85 dedup threshold
             words = " ".join("".join(rnd.choices(string.ascii_lowercase, k=6)) for _ in range(5))
             out.append({"text": f"Is {words} ok with Brandex?", "intent": "informational", "competitor": None})
-        return llm.LLMResult({"prompts": out}, 10, 20, "fake")
+        return llm.LLMResult({"prompts": out}, 10, 20)
 
 
 def run(payload, fake, monkeypatch, seed=0):

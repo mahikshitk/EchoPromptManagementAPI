@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from promptgen import config
-from promptgen.schema import Payload, load_cli
+from promptgen.schema import Payload
 
 AC_URL = "https://suggestqueries.google.com/complete/search"
 
@@ -203,16 +203,3 @@ def harvest(p: Payload, use_autocomplete: bool | None = None, use_trends: bool |
             res.errors.append(f"store push to {cache.s3_uri}: {type(e).__name__}: {str(e)[:120]}")
     res.stored = cache.size()
     return res
-
-
-if __name__ == "__main__":
-    p, a = load_cli("Harvest patient search questions", lambda ap: ap.add_argument(
-        "--offline", action="store_true", help="serve only stored results, never fetch"))
-    print(f"brand={p.grounding.brand} diseaseAreas={p.grounding.diseaseAreas}\n")
-    t = time.time()
-    r = harvest(p, offline=a.offline)
-    for q in r.questions:
-        print(f"[{q['source']:12}] {q['text']}")
-    print(f"\n{len(r.questions)} questions, {r.stats}, store {r.stored} rows, {time.time() - t:.1f}s")
-    for e in r.errors:
-        print("ERROR:", e)

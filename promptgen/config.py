@@ -67,12 +67,22 @@ AUDIENCE_PROFILES = {
         "fewshot": False,
     },
     "media_investor": {
-        "persona": "a journalist, equity analyst or investor covering the medicine and its company",
+        "persona": ("an equity analyst, investor or business / pharma trade journalist covering the medicine "
+                    "and its company"),
         "rules": [
-            "Commercial and newsworthy angles: performance, competition, pricing, pipeline, controversy.",
+            "Every question is about commercial or news impact: sales, uptake, market share, forecasts, pricing, "
+            "competition, pipeline, deals, and risks to the company or the investment case.",
+            "Turn clinical, safety, eligibility and reimbursement facts into what they mean for the business: "
+            "ask what a reimbursement decision means for uptake or sales, never whether a patient is eligible.",
+            "Use investor and trade-press vocabulary where it fits: launch trajectory, peak sales, consensus "
+            "or Street expectations, guidance, net pricing, share of new patients, loss of exclusivity, "
+            "catalysts, read-across to competitors.",
+            "Mix analyst questions (specific, forward-looking: what is assumed, what could change the outlook) "
+            "with journalist questions (why, who is affected, what happens next, what critics say). "
+            "Vary the openings.",
             "Ask about allegations, risks and numbers; never assert them.",
         ],
-        "intents": ["informational", "comparison", "side_effects", "clinical_evidence", "reimbursement",
+        "intents": ["informational", "comparison", "clinical_evidence", "reimbursement",
                     "market_outlook", "controversy", "corporate"],
         "block_doses": False,
         "fewshot": False,
@@ -122,8 +132,8 @@ ANGLES = {
         "policy_payer": ["comparative effectiveness against standard of care",
                          "strength and relevance of the trial evidence", "durability of benefit over time",
                          "outcomes that matter to patients and the health system", VS_COMPETITOR],
-        "media_investor": ["clinical differentiation as a commercial driver", "upcoming data readouts",
-                           "whether efficacy claims hold up in the real world", VS_COMPETITOR],
+        "media_investor": ["clinical differentiation as a commercial driver", "upcoming data readouts as catalysts",
+                           "real-world data and what it means for uptake", VS_COMPETITOR],
     },
     "safety": {
         "patient": ["common side effects", "pregnancy and breastfeeding", "alcohol and other medicines",
@@ -133,8 +143,9 @@ ANGLES = {
                 "long-term and post-marketing safety", VS_COMPETITOR],
         "policy_payer": ["cost of safety monitoring", "long-term safety uncertainty in the evidence",
                          "safety relative to existing options", "risk management and prescribing restrictions"],
-        "media_investor": ["safety signals or regulatory warnings", "label changes and their commercial impact",
-                           "safety versus competitors as a selling point", "litigation or recall risk"],
+        "media_investor": ["safety signals or regulatory warnings as a risk to sales",
+                           "label changes and their commercial impact", "the safety profile as a selling point",
+                           "litigation or recall risk"],
     },
     "moa": {
         "patient": ["how it works in simple terms", "how it differs from my current treatment",
@@ -145,7 +156,7 @@ ANGLES = {
                          "class effect and interchangeability with similar drugs",
                          "mechanism-based rationale for patient subgroups"],
         "media_investor": ["first-in-class or best-in-class potential", "competition within the same drug class",
-                           "potential in other diseases", "patent and exclusivity protection"],
+                           "potential in other diseases", "patent life and loss of exclusivity"],
     },
     "population": {
         "patient": ["whether I am eligible", "children and older people", "other health conditions I have",
@@ -157,7 +168,7 @@ ANGLES = {
         "policy_payer": ["size of the eligible population", "eligibility criteria in reimbursement decisions",
                          "subgroups with the best value", "restriction to a line of therapy"],
         "media_investor": ["size of the addressable patient population", "label expansion into new indications",
-                           "uptake among eligible patients", "unmet need in underserved groups"],
+                           "launch uptake and share of new patients", "underserved patient groups as a growth opportunity"],
     },
     "disease": {
         "patient": ["symptoms and triggers", "best treatment options", "living with it day to day",
@@ -178,7 +189,8 @@ ANGLES = {
                 "lower-cost alternatives such as generics or biosimilars"],
         "policy_payer": ["HTA appraisal and recommendation", "price and cost-effectiveness threshold",
                          "budget impact", "discounts, managed access or patient access schemes", VS_COMPETITOR],
-        "media_investor": ["pricing strategy and price pressure", "reimbursement wins or setbacks",
+        "media_investor": ["pricing strategy and net price pressure",
+                           "reimbursement decisions and what they mean for sales",
                            "market access as a driver of sales", "competition from generics or biosimilars",
                            "patient access controversies"],
     },
@@ -189,7 +201,8 @@ ANGLES = {
                 "industry relationships and transparency", "supply reliability"],
         "policy_payer": ["the manufacturer's pricing and access commitments",
                          "the company's track record with health systems", "evidence generation commitments"],
-        "media_investor": ["company strategy and the brand's role in it", "revenue and growth expectations",
+        "media_investor": ["company strategy and the brand's role in it",
+                           "revenue guidance and consensus expectations",
                            "pipeline and future launches", "leadership, deals and acquisitions",
                            "reputation and controversies"],
     },

@@ -23,7 +23,6 @@ class LLMResult:
     data: dict
     prompt_tokens: int
     completion_tokens: int
-    model: str
 
 
 def default_model() -> str:
@@ -76,21 +75,7 @@ def chat_json(system: str, user: str, model: str | None = None,
                 data=_parse(resp["choices"][0]["message"]["content"] or ""),
                 prompt_tokens=usage.get("prompt_tokens", 0),
                 completion_tokens=usage.get("completion_tokens", 0),
-                model=resp.get("model", model),
             )
         except (httpx.TransportError, ValueError, KeyError, IndexError) as e:
             last = f"{type(e).__name__}: {e}"
     raise LLMError(f"gave up after {config.RETRIES + 1} attempts; last: {last}")
-
-
-if __name__ == "__main__":
-    t = time.time()
-    res = chat_json(
-        'You write questions a patient would type into ChatGPT. Reply with JSON: '
-        '{"prompts":[{"text":"...","intent":"...","competitor":null}]}',
-        "Write 3 first-person questions about the psoriasis drug Brandex. "
-        f"intent must be one of {list(config.INTENTS)}.",
-    )
-    print(json.dumps(res.data, indent=2))
-    print(f"model={res.model} tokens in/out={res.prompt_tokens}/{res.completion_tokens} "
-          f"time={time.time() - t:.1f}s")

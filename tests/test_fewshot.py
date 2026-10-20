@@ -1,9 +1,10 @@
 import json
+from collections import Counter
 
 import pytest
 
 from promptgen import config
-from promptgen.fewshot import Sampler, build_pool, is_relevant, tag, topic_counts
+from promptgen.fewshot import Sampler, build_pool, is_relevant, tag
 from promptgen.schema import Payload
 
 
@@ -46,11 +47,11 @@ def test_all_sources_off_uses_all_fallbacks(payload):
     assert all(x["source"] == "fallback" for x in pool)
     assert "how long does Brandex take to work" in [x["text"] for x in pool]
     assert "does Brandex work for plaque psoriasis" in [x["text"] for x in pool]
-    assert all(topic_counts(pool)[t] >= 2 for t in ("safety", "efficacy", "access_cost"))
+    assert all(Counter(x["topic"] for x in pool)[t] >= 2 for t in ("safety", "efficacy", "access_cost"))
 
 
 def test_fallback_without_disease_areas(payload):
-    pool = build_pool([], payload.with_grounding(disease_areas=[]))
+    pool = build_pool([], payload.model_copy(update={"grounding": payload.grounding.model_copy(update={"diseaseAreas": []})}))
     assert "does Brandex work for my condition" in [x["text"] for x in pool]
 
 
