@@ -41,7 +41,7 @@ def test_dedup_within_batch_and_quota(payload):
     d = Deduper([EXISTING])
     items = [item("Can I drink alcohol on Brandex?"), item("Can I drink alcohol on Brandex??"),
              item(EXISTING), item("Is Brandex safe if I'm pregnant?"), item("How long until Brandex works?")]
-    r = filter_batch(items, payload, d, quota=2)
+    r = filter_batch(items, payload, "patient", d, quota=2)
     assert [x["text"] for x in r.accepted] == ["Can I drink alcohol on Brandex?", "Is Brandex safe if I'm pregnant?"]
     assert (r.duplicates, r.surplus) == (2, 1)
     assert d.texts == [EXISTING, *[x["text"] for x in r.accepted]]
@@ -59,20 +59,20 @@ def test_dedup_within_batch_and_quota(payload):
     (item("Can I take Brandex with 2 ml of alcohol?"), "dose"),
 ])
 def test_validate_rejects(payload, raw, reason):
-    assert validate(raw, payload) == (None, reason)
+    assert validate(raw, payload, "patient") == (None, reason)
 
 
 def test_validate_fixes_intent_and_competitor(payload):
-    out, _ = validate(item("  Is Brandex better than   competitor a?", "made_up", " COMPETITOR A "), payload)
+    out, _ = validate(item("  Is Brandex better than   competitor a?", "made_up", " COMPETITOR A "), payload, "patient")
     assert out == {"text": "Is Brandex better than competitor a?", "intent": "informational",
                    "competitor": "Competitor A"}
-    out, _ = validate(item("Is Brandex better than Humira?", "comparison", "Humira"), payload)
+    out, _ = validate(item("Is Brandex better than Humira?", "comparison", "Humira"), payload, "patient")
     assert out["competitor"] is None  # not in payload list
 
 
 def test_competitor_dropped_when_option_off(payload):
     payload.options.includeCompetitorPrompts = False
-    out, _ = validate(item("Is Brandex better than Competitor A?", "comparison", "Competitor A"), payload)
+    out, _ = validate(item("Is Brandex better than Competitor A?", "comparison", "Competitor A"), payload, "patient")
     assert out["competitor"] is None
 
 
@@ -85,12 +85,36 @@ def test_competitor_dropped_when_option_off(payload):
     ("Will Brandex work for my psoriasis?", False),
 ])
 def test_prelaunch_wording(payload, text, blocked):
-    assert validate(item(text), payload)[0] is not None  # launched: all allowed
+    assert validate(item(text), payload, "patient")[0] is not None  # launched: all allowed
     pre = payload.model_copy(update={"grounding": payload.grounding.model_copy(update={"stage": "Pre-launch"})})
-    out, reason = validate(item(text), pre)
+    out, reason = validate(item(text), pre, "patient")
     assert (out is None) is blocked
     if blocked:
         assert reason == "implies availability"
+
+
+def test_doses_allowed_for_clinicians(payload):
+    text = "Is 50mg of Brandex the right starting dose for elderly patients?"
+    assert validate(item(text), payload, "patient") == (None, "dose")
+    assert validate(item(text), payload, "hcp")[0]["text"] == text
+
+
+@pytest.mark.parametrize("audience,intent,expected", [
+    ("patient", "side_effects", "side_effects"),
+    ("patient", "market_outlook", "informational"),  # real intent, not allowed for patients
+    ("hcp", "guideline", "guideline"),
+    ("media_investor", "controversy", "controversy"),
+    ("policy_payer", "cost_effectiveness", "cost_effectiveness"),
+    ("policy_payer", "experience", "informational"),
+])
+def test_intent_allowed_per_audience(payload, audience, intent, expected):
+    out, _ = validate(item("Does Brandex offer good value for the health system?", intent), payload, audience)
+    assert out["intent"] == expected
+
+
+def test_prelaunch_allows_questions_about_future_prescribing(payload):
+    pre = payload.model_copy(update={"grounding": payload.grounding.model_copy(update={"stage": "Pre-launch"})})
+    assert validate(item("What will the prescribing criteria for Brandex be?"), pre, "hcp")[0] is not None
 
 
 # ---- groundingUsed ----
@@ -118,8 +142,10 @@ def test_grounding_used_follows_brand_override(payload):
 def test_assemble(payload):
     records = [
         {"text": "Is Brandex better than Competitor A at clearing my psoriasis?", "intent": "comparison",
-         "competitor": "Competitor A", "topic": "efficacy", "angle": "vs competitor", "batchId": "efficacy-1"},
-        {"text": "Can I drink alcohol on Brandex?", "intent": "side_effects", "competitor": None, "topic": "safety"},
+         "competitor": "Competitor A", "audience": "patient", "topic": "efficacy", "angle": "vs competitor",
+         "batchId": "patient/efficacy-1"},
+        {"text": "What is the NICE position on Brandex?", "intent": "reimbursement", "competitor": None,
+         "audience": "policy_payer", "topic": "access_cost"},
     ]
     out = assemble(payload, records, now=datetime(2026, 10, 3, 10, 15, tzinfo=timezone.utc))
     d = out.model_dump()
@@ -135,4 +161,6 @@ def test_assemble(payload):
         "intent": "comparison",
         "groundingUsed": ["brand", "competitors[0]", "diseaseAreas[0]"],
     }  # debug keys (angle, batchId) dropped
-    assert d["prompts"][1]["tempId"] == "g_002" and d["prompts"][1]["topic"]["categoryId"] == 4
+    second = d["prompts"][1]
+    assert second["tempId"] == "g_002" and second["topic"]["categoryId"] == 8
+    assert second["audience"] == {"code": "policy_payer", "name": "Policy & payer"}

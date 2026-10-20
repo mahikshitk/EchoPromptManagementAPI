@@ -30,7 +30,7 @@ def build_pool(questions: list[dict], p: Payload) -> list[dict]:
     under MIN_POOL, otherwise only those for topics with fewer than MIN_PER_TOPIC examples."""
     pool = [{**q, "topic": tag(q["text"])} for q in questions if is_relevant(q["text"], p)]
     counts = topic_counts(pool)
-    short = {t for t in config.TOPIC_WEIGHTS if counts[t] < config.MIN_PER_TOPIC}
+    short = {t for t in config.TOPIC_KEYWORDS if counts[t] < config.MIN_PER_TOPIC}
     disease = p.grounding.diseaseAreas[0].lower() if p.grounding.diseaseAreas else "my condition"
     seen = {q["text"].lower() for q in pool}
     small = len(pool) < config.MIN_POOL
@@ -93,13 +93,13 @@ if __name__ == "__main__":
     pool = build_pool(harvest(p, off, off).questions, p)
     print(f"brand={p.grounding.brand}  pool={len(pool)}  by topic={dict(topic_counts(pool))}")
     print(f"sources={dict(Counter(q['source'] for q in pool))}\n")
-    for topic in config.TOPIC_WEIGHTS:
+    for topic in config.TOPIC_KEYWORDS:
         print(f"== {topic} ==")
         for q in pool:
             if q["topic"] == topic:
                 print("   ", q["text"])
     s = Sampler(pool, seed=0)
-    for topic in config.TOPIC_WEIGHTS:
+    for topic in config.TOPIC_KEYWORDS:
         for i in range(2):
             print(f"\n-- sample batch: {topic} #{i + 1} --")
             for q in s.pick(topic):

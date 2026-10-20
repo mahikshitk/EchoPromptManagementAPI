@@ -22,7 +22,11 @@ def q(text):
     ("how long does brandex take to work", "efficacy"),
     ("can i get it on the nhs", "access_cost"),
     ("can dogs get plaque psoriasis", "general"),   # "get" alone is not access_cost
-    ("is psoriasis contagious", "general"),
+    ("is psoriasis contagious", "disease"),
+    ("what causes plaque psoriasis", "disease"),
+    ("can children use brandex", "population"),
+    ("who makes brandex", "corporate"),
+    ("is brandex a biologic", "moa"),
     ("does homework help", "general"),              # keyword must start a word
 ])
 def test_tag(text, topic):
@@ -42,7 +46,7 @@ def test_all_sources_off_uses_all_fallbacks(payload):
     assert all(x["source"] == "fallback" for x in pool)
     assert "how long does Brandex take to work" in [x["text"] for x in pool]
     assert "does Brandex work for plaque psoriasis" in [x["text"] for x in pool]
-    assert all(topic_counts(pool)[t] >= 2 for t in config.TOPIC_WEIGHTS)
+    assert all(topic_counts(pool)[t] >= 2 for t in ("safety", "efficacy", "access_cost"))
 
 
 def test_fallback_without_disease_areas(payload):
@@ -56,7 +60,7 @@ def test_short_topics_topped_up_only(payload):
     ]
     pool = build_pool(harvested, payload)
     fb = [x for x in pool if x["source"] == "fallback"]
-    assert fb and {x["topic"] for x in fb} <= {"efficacy", "access_cost"}
+    assert fb and "safety" not in {x["topic"] for x in fb}
 
 
 def make_pool():

@@ -89,7 +89,7 @@ if __name__ == "__main__":
         'You write questions a patient would type into ChatGPT. Reply with JSON: '
         '{"prompts":[{"text":"...","intent":"...","competitor":null}]}',
         "Write 3 first-person questions about the psoriasis drug Brandex. "
-        f"intent must be one of {config.INTENTS}.",
+        f"intent must be one of {list(config.INTENTS)}.",
     )
     print(json.dumps(res.data, indent=2))
     print(f"model={res.model} tokens in/out={res.prompt_tokens}/{res.completion_tokens} "

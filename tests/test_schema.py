@@ -12,37 +12,99 @@ def sample() -> dict:
 
 def test_sample_parses():
     p = Payload.model_validate(sample())
-    assert p.audience.code == "patient"
-    assert [(t.code, t.categoryId) for t in p.enabled_topics()] == [
-        ("safety", 4), ("efficacy", 3), ("access_cost", 8)
-    ]
-    assert p.do_not_repeat() == ["What are the side effects of Brandex?"]
+    assert [(t.code, t.categoryId) for t in p.active_topics()][:2] == [("efficacy", 3), ("safety", 4)]
+    assert p.grounding.websites.corporate == "https://pharmaco.com"
+    assert p.do_not_repeat("patient") == ["What are the side effects of Brandex?"]
     assert p.grounding.model_extra["brandId"] == 12  # extra="allow" keeps unknown fields
+
+
+def test_all_audiences_and_topics_active():
+    p = Payload.model_validate(sample())
+    assert [a.code for a in p.active_audiences()] == ["patient", "hcp", "policy_payer", "media_investor"]
+    assert [t.code for t in p.active_topics()] == [
+        "efficacy", "safety", "moa", "population", "disease", "access_cost", "corporate"]
+    assert len(p.pairs()) == 28
+
+
+def test_unknown_codes_ignored_with_warning():
+    d = sample()
+    d["audiences"].append({"code": "pharmacist", "name": "Pharmacist"})
+    d["topics"].append({"code": "pricing", "name": "Pricing", "categoryId": 99})
+    d["audiences"].append(d["audiences"][0])  # duplicate code counted once
+    p = Payload.model_validate(d)
+    assert len(p.pairs()) == 28
+    w = " | ".join(p.warnings())
+    assert "pharmacist" in w and "pricing" in w
 
 
 def test_warnings():
     w = " | ".join(Payload.model_validate(sample()).warnings())
-    for word in ("hcp", "moa", "corporate", "includeReddit"):
+    for word in ("caps 28 pairs x 2 = 56", "includeReddit", "benchmark"):
         assert word in w
 
 
-def test_include_autocomplete_defaults_true():
+def test_benchmark_parsed():
+    b = Payload.model_validate(sample()).benchmark
+    assert b.hasBenchmark and [d.documentId for d in b.documents] == [901, 902]
     d = sample()
-    del d["options"]["includeAutocomplete"]
-    assert Payload.model_validate(d).options.includeAutocomplete is True
+    del d["benchmark"]
+    assert Payload.model_validate(d).benchmark is None
 
 
-def test_existing_prompt_for_other_audience_not_in_do_not_repeat():
+def test_include_autocomplete_defaults_true():
+    assert Payload.model_validate(sample()).options.includeAutocomplete is True
+
+
+def test_do_not_repeat_per_audience():
     d = sample()
     d["existingPrompts"].append({"text": "HCP question?", "audience": "hcp"})
-    assert "HCP question?" not in Payload.model_validate(d).do_not_repeat()
+    p = Payload.model_validate(d)
+    assert "HCP question?" not in p.do_not_repeat("patient")
+    assert p.do_not_repeat("hcp") == ["What are the side effects of Brandex?", "HCP question?"]
 
 
-def test_rejects_no_patient_audience():
+def test_rejects_no_known_audience():
     d = sample()
-    d["audiences"] = [a for a in d["audiences"] if a["code"] != "patient"]
-    with pytest.raises(ValidationError, match="patient"):
+    d["audiences"] = [{"code": "pharmacist", "name": "Pharmacist"}]
+    with pytest.raises(ValidationError, match="audiences"):
         Payload.model_validate(d)
+
+
+def test_rejects_zero_prompts_per_pair():
+    d = sample()
+    d["options"]["promptsPerPair"] = 0
+    with pytest.raises(ValidationError):
+        Payload.model_validate(d)
+
+
+def with_options(**opts) -> Payload:
+    d = sample()
+    d["options"].update(opts)
+    return Payload.model_validate(d)
+
+
+def test_allocate_capped_spreads_evenly():
+    a = with_options(maxPrompts=47, promptsPerPair=2).allocate(seed=1)
+    assert sum(a.values()) == 47 and len(a) == 28
+    assert sorted(a.values()) == [1] * 9 + [2] * 19
+
+
+def test_allocate_uncapped_gives_every_pair_its_target():
+    assert set(with_options(maxPrompts=100, promptsPerPair=3).allocate().values()) == {3}  # 84 <= 100
+    a = with_options(maxPrompts=100, promptsPerPair=4).allocate()  # 112 > 100
+    assert sum(a.values()) == 100 and sorted(set(a.values())) == [3, 4]
+
+
+def test_allocate_fewer_prompts_than_pairs():
+    a = with_options(maxPrompts=20, promptsPerPair=2).allocate(seed=0)
+    assert sum(a.values()) == 20 and sorted(a.values()) == [0] * 8 + [1] * 20
+    assert "some get none" in " | ".join(with_options(maxPrompts=20).warnings())
+
+
+def test_allocate_rotates_between_runs():
+    p = with_options(maxPrompts=47, promptsPerPair=2)
+    assert p.allocate(seed=1) == p.allocate(seed=1)
+    assert len({tuple(p.allocate().values()) for _ in range(10)}) > 1
 
 
 def test_rejects_n_over_100():

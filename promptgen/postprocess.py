@@ -43,8 +43,9 @@ class Deduper:
         self._norm.append(normalize(text))
 
 
-def validate(item, p: Payload) -> tuple[dict | None, str]:
-    """-> (clean item, "") or (None, reject reason)."""
+def validate(item, p: Payload, audience: str) -> tuple[dict | None, str]:
+    """-> (clean item, "") or (None, reject reason). audience: code, selects the audience's rules."""
+    prof = config.AUDIENCE_PROFILES[audience]
     if not isinstance(item, dict) or not isinstance(item.get("text"), str):
         return None, "malformed"
     text = " ".join(item["text"].split())
@@ -52,12 +53,12 @@ def validate(item, p: Payload) -> tuple[dict | None, str]:
         return None, "not a question"
     if not config.MIN_LEN <= len(text) <= config.MAX_LEN:
         return None, "length"
-    if _DOSE.search(text):
+    if prof["block_doses"] and _DOSE.search(text):
         return None, "dose"
     if p.grounding.stage.lower() != "launched" and _PRELAUNCH.search(text):
         return None, "implies availability"
     intent = item.get("intent")
-    if intent not in config.INTENTS:
+    if intent not in prof["intents"]:
         intent = config.DEFAULT_INTENT
     competitor = None
     if p.options.includeCompetitorPrompts and isinstance(item.get("competitor"), str):
@@ -74,11 +75,11 @@ class BatchResult:
     surplus: int = 0  # valid and unique, but over quota
 
 
-def filter_batch(items, p: Payload, dedup: Deduper, quota: int) -> BatchResult:
+def filter_batch(items, p: Payload, audience: str, dedup: Deduper, quota: int) -> BatchResult:
     """Validate and dedup LLM items, accepting up to quota. Accepted texts are added to dedup."""
     res = BatchResult()
     for raw in items if isinstance(items, list) else []:
-        item, reason = validate(raw, p)
+        item, reason = validate(raw, p, audience)
         if item is None:
             res.rejected[reason] += 1
         elif dedup.is_dup(item["text"]):
@@ -107,9 +108,9 @@ def grounding_used(text: str, p: Payload) -> list[str]:
 
 
 def assemble(p: Payload, records: list[dict], now: datetime | None = None) -> Output:
-    """records: {"text", "intent", "competitor", "topic": code, ...debug keys ignored}."""
-    topics = {t.code: t for t in p.enabled_topics()}
-    aud = p.audience
+    """records: {"text", "intent", "competitor", "audience": code, "topic": code, ...debug keys ignored}."""
+    audiences = {a.code: a for a in p.active_audiences()}
+    topics = {t.code: t for t in p.active_topics()}
     now = now or datetime.now(timezone.utc)
     return Output(
         requestId=p.requestId,
@@ -119,7 +120,7 @@ def assemble(p: Payload, records: list[dict], now: datetime | None = None) -> Ou
             OutPrompt(
                 tempId=f"g_{i:03d}",
                 text=r["text"],
-                audience=OutAudience(code=aud.code, name=aud.name),
+                audience=OutAudience(code=r["audience"], name=audiences[r["audience"]].name),
                 topic=OutTopic(code=r["topic"], name=topics[r["topic"]].name,
                                categoryId=topics[r["topic"]].categoryId),
                 competitor=r["competitor"],
@@ -152,8 +153,8 @@ if __name__ == "__main__":
         {"text": f"Will {b} help my flare-ups?", "intent": "made_up_intent", "competitor": "Nope"},
         "garbage",
     ]
-    d = Deduper(p.do_not_repeat())
-    r = filter_batch(items, p, d, quota=10)
+    d = Deduper(p.do_not_repeat("patient"))
+    r = filter_batch(items, p, "patient", d, quota=10)
     print(f"stage={p.grounding.stage}  accepted={len(r.accepted)}  rejected={dict(r.rejected)}  "
           f"duplicates={r.duplicates}\n")
-    print(json.dumps(assemble(p, [{**x, "topic": "safety"} for x in r.accepted]).model_dump(), indent=2))
+    print(json.dumps(assemble(p, [{**x, "audience": "patient", "topic": "safety"} for x in r.accepted]).model_dump(), indent=2))

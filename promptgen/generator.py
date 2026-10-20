@@ -1,6 +1,7 @@
-"""Allocation, the per-topic batch loop, top-up, and the end-to-end run."""
+"""Prompt building, the per-pair batch loop, top-up, and the end-to-end run."""
 
 import math
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -10,26 +11,9 @@ from promptgen import config, llm
 from promptgen.fewshot import Sampler, build_pool
 from promptgen.harvest import HarvestResult, harvest
 from promptgen.postprocess import Deduper, assemble, filter_batch
-from promptgen.schema import Output, Payload, Topic
+from promptgen.schema import Audience, Output, Payload, Topic
 
-# ---- allocation ----
-
-
-def allocate(n: int, codes: list[str], floor: int) -> dict[str, int]:
-    """Largest-remainder split of n by config weights, each topic at least `floor` (if n allows)."""
-    w = {c: config.TOPIC_WEIGHTS[c] for c in codes}
-    total = sum(w.values())
-    exact = {c: n * w[c] / total for c in codes}
-    q = {c: int(exact[c]) for c in codes}
-    for c in sorted(codes, key=lambda c: exact[c] - q[c], reverse=True)[: n - sum(q.values())]:
-        q[c] += 1
-    floor = min(floor, n // len(codes))
-    for c in codes:
-        while q[c] < floor:  # take from the biggest topic that stays above floor
-            donor = max(codes, key=lambda d: q[d])
-            q[donor] -= 1
-            q[c] += 1
-    return q
+# ---- angles ----
 
 
 def batch_sizes(q: int) -> list[int]:
@@ -40,10 +24,10 @@ def batch_sizes(q: int) -> list[int]:
     return [q // k + (1 if i < q % k else 0) for i in range(k)]
 
 
-def angles_for(topic: str, p: Payload) -> list[str]:
-    """Topic angles with "vs competitor" expanded per competitor, or dropped if comparisons are off."""
+def angles_for(topic: str, audience: str, p: Payload) -> list[str]:
+    """Angles for a pair, "vs competitor" expanded per competitor or dropped if comparisons are off."""
     out = []
-    for a in config.ANGLES[topic]:
+    for a in config.ANGLES[topic][audience]:
         if a != config.VS_COMPETITOR:
             out.append(a)
         elif p.options.includeCompetitorPrompts:
@@ -51,41 +35,61 @@ def angles_for(topic: str, p: Payload) -> list[str]:
     return out
 
 
+def angle_orders(p: Payload, alloc: dict, seed: int | None = None) -> dict[tuple[str, str], list[str]]:
+    """Each allocated pair's angles in a random order: batches take angles in this order, so every
+    run starts each pair on a different angle."""
+    rng = random.Random(seed)
+    out = {}
+    for a, t in p.pairs():
+        if alloc[a.code, t.code]:
+            angles = angles_for(t.code, a.code, p)
+            out[a.code, t.code] = rng.sample(angles, len(angles))
+    return out
+
+
 # ---- prompts ----
 
-SYSTEM = """You write the questions a real patient would type into ChatGPT, Gemini or Perplexity about a medicine.
+SYSTEM = """You write the questions that {persona} would type into ChatGPT, Gemini or Perplexity about a medicine.
 
-Voice: {voice}.
-Market: {market}. Language: {language}. Use framing natural for that market (for the UK: GP, NHS, prescription charge).
+Audience: {audience}. Voice: {voice}.
+Market: {market}. Language: {language}. Use the healthcare-system terms, institutions and spelling natural for that market.
 
 Rules:
 - Write questions only, never answers. Every question ends with "?".
-- First person, lay language, no medical jargon.
-- Match the phrasing style and length of the EXAMPLE SEARCHES, but never copy them.
-- Do not invent symptoms, doses, numbers, trial results or personal histories.
-- Comparisons are questions, never claims.
+{audience_rules}
+- Do not invent facts: no made-up numbers, trial results, prices, dates, approvals, events or company names.
+- Comparisons and criticisms are questions, never claims.
 {stage_rule}- Never repeat or paraphrase anything in the DO NOT REPEAT list. Every question must be distinct from the others.
-- Every question is about {brand}; name it in most questions.
+- Vary the phrasing and length: mix short searches with fuller, specific questions.
+{style_rule}
+Intents (pick one per question):
+{intents}
 
 Reply with JSON only:
-{{"prompts": [{{"text": "...", "intent": "<one of: {intents}>", "competitor": "<exact competitor name or null>"}}]}}"""
+{{"prompts": [{{"text": "...", "intent": "<intent code>", "competitor": "<exact competitor name or null>"}}]}}"""
 
 
-def system_prompt(p: Payload) -> str:
+def system_prompt(p: Payload, audience: Audience) -> str:
     g = p.grounding
+    prof = config.AUDIENCE_PROFILES[audience.code]
     stage_rule = "" if g.stage.lower() == "launched" else (
         f"- {g.brand} is not launched yet (stage: {g.stage}). Never imply it is approved, available, "
         "prescribed, or that anyone is already taking it.\n")
-    return SYSTEM.format(voice=p.audience.voice or "lay, first person", market=g.market.name or g.market.isoCode,
-                         language=p.options.language, stage_rule=stage_rule, brand=g.brand,
-                         intents=", ".join(config.INTENTS))
+    style_rule = ("- Match the phrasing style and length of the EXAMPLE SEARCHES, but never copy them.\n"
+                  if prof["fewshot"] else "")
+    return SYSTEM.format(
+        persona=prof["persona"], audience=audience.name, voice=audience.voice or "natural for this audience",
+        market=g.market.name or g.market.isoCode, language=p.options.language,
+        audience_rules="\n".join(f"- {r}" for r in prof["rules"]), stage_rule=stage_rule, style_rule=style_rule,
+        intents="\n".join(f"- {i}: {config.INTENTS[i]}" for i in prof["intents"]))
 
 
 def user_prompt(p: Payload, topic: Topic, angle: str, count: int, examples: list[dict],
                 do_not_repeat: list[str]) -> str:
     g = p.grounding
+    tp = config.TOPIC_PROFILES[topic.code]
     lines = [
-        f"TOPIC: {topic.name}",
+        f"TOPIC: {topic.name} ({tp['focus']})",
         f"ANGLE: {angle}",
         f"WRITE: {count} questions",
         "",
@@ -94,6 +98,8 @@ def user_prompt(p: Payload, topic: Topic, angle: str, count: int, examples: list
         f"- Condition(s): {', '.join(g.diseaseAreas) or 'not specified'}",
         f"- Stage: {g.stage}; market access: {g.marketAccess or 'unknown'}",
     ]
+    if g.websites.corporate:
+        lines.append(f"- Company website: {g.websites.corporate} (the company name is not given; do not guess it)")
     if p.options.includeCompetitorPrompts and g.competitors:
         lines.append(f"- Competitors: {', '.join(g.competitors)}")
         if angle.startswith("vs "):
@@ -102,9 +108,35 @@ def user_prompt(p: Payload, topic: Topic, angle: str, count: int, examples: list
             lines.append('- Set "competitor" to the competitor named in the question, else null.')
     else:
         lines.append('- Do not mention competitors; "competitor" is always null.')
-    lines += ["", "EXAMPLE SEARCHES (style reference only):", *[f"- {e['text']}" for e in examples]]
+    lines.append(f"- Name {g.brand} in most questions." if tp["brand"] == "most" else
+                 f"- Most questions are about the condition in general; name {g.brand} in only some of them.")
+    if examples:
+        lines += ["", "EXAMPLE SEARCHES (style reference only):", *[f"- {e['text']}" for e in examples]]
     lines += ["", "DO NOT REPEAT (or paraphrase):", *([f"- {t}" for t in do_not_repeat] or ["- (none)"])]
     return "\n".join(lines)
+
+
+def dry_run(p: Payload, seed: int | None = None) -> None:
+    """Print the system prompt per audience and the user prompt per pair, without calling the LLM.
+    Patient examples come from the fallback list (no harvesting)."""
+    alloc = p.allocate(seed)
+    orders = angle_orders(p, alloc, seed)
+    sampler = Sampler(build_pool([], p), seed)
+    for aud in p.active_audiences():
+        print(f"\n{'#' * 100}\n# SYSTEM PROMPT: {aud.code}\n{'#' * 100}\n{system_prompt(p, aud)}")
+        for topic in p.active_topics():
+            q = alloc[aud.code, topic.code]
+            print(f"\n----- {aud.code} x {topic.code}: quota {q} -----")
+            if not q:
+                print("(skipped: no prompts allocated this run)")
+                continue
+            angle = orders[aud.code, topic.code][0]
+            examples = sampler.pick(topic.code) if config.AUDIENCE_PROFILES[aud.code]["fewshot"] else []
+            print(user_prompt(p, topic, angle, math.ceil(q * config.OVERGENERATE), examples,
+                              p.do_not_repeat(aud.code)))
+    print(f"\nAllocation: {sum(alloc.values())} prompts over {len(alloc)} pairs")
+    for w in p.warnings():
+        print("WARNING:", w)
 
 
 # ---- run ----
@@ -114,7 +146,7 @@ def user_prompt(p: Payload, topic: Topic, angle: str, count: int, examples: list
 class RunResult:
     output: Output
     records: list[dict]          # accepted prompts with debug fields (angle, batchId, referenceIds)
-    allocation: dict[str, int]
+    allocation: dict[tuple[str, str], int]
     pool: list[dict]
     harvest: HarvestResult
     batches: list[dict] = field(default_factory=list)  # per-call log
@@ -125,39 +157,43 @@ class RunResult:
     seconds: float = 0.0
 
 
-def generate(p: Payload, n: int | None = None, use_autocomplete: bool | None = None,
-             use_trends: bool | None = None, model: str | None = None, seed: int | None = None,
-             on_event=print) -> RunResult:
+def generate(p: Payload, use_autocomplete: bool | None = None, use_trends: bool | None = None,
+             model: str | None = None, seed: int | None = None, on_event=print, offline: bool = False) -> RunResult:
     t0 = time.time()
-    n = n or p.options.maxPrompts
-    if not 1 <= n <= 100:
-        raise ValueError("n must be between 1 and 100")
-    topics = p.enabled_topics()
-    alloc = allocate(n, [t.code for t in topics], p.options.promptsPerPair)
-    on_event(f"Allocation for n={n}: {alloc}")
+    alloc = p.allocate(seed)
+    orders = angle_orders(p, alloc, seed)
+    pairs = [(a, t) for a, t in p.pairs() if alloc[a.code, t.code]]
+    on_event(f"Allocation: {sum(alloc.values())} prompts over {len(pairs)} pairs")
 
-    h = harvest(p, use_autocomplete, use_trends)
-    on_event(f"Harvest: {len(h.questions)} questions, {h.stats}")
-    pool = build_pool(h.questions, p)
-    for i, q in enumerate(pool):
-        q["id"] = f"r{i:03d}"
-    on_event(f"Reference pool: {len(pool)} ({sum(q['source'] == 'fallback' for q in pool)} fallback)")
+    # harvested Google searches are style examples for few-shot audiences only (patient)
+    h = HarvestResult()
+    pool: list[dict] = []
+    if any(config.AUDIENCE_PROFILES[a.code]["fewshot"] for a in p.active_audiences()):
+        h = harvest(p, use_autocomplete, use_trends, offline=offline)
+        on_event(f"Harvest: {len(h.questions)} questions, {h.stats}, store {h.stored} rows")
+        for e in h.errors:
+            on_event(f"Harvest error: {e}")
+        pool = build_pool(h.questions, p)
+        for i, q in enumerate(pool):
+            q["id"] = f"r{i:03d}"
+        on_event(f"Reference pool: {len(pool)} ({sum(q['source'] == 'fallback' for q in pool)} fallback)")
 
     sampler = Sampler(pool, seed)
-    dedup = Deduper(p.do_not_repeat())
-    # ponytail: one lock for sampler + dedup; topics run in parallel, batches within a topic in order
+    dedup = {a.code: Deduper(p.do_not_repeat(a.code)) for a in p.active_audiences()}
+    sys_prompts = {a.code: system_prompt(p, a) for a in p.active_audiences()}
+    # ponytail: one lock for sampler, dedup and res; pairs run in parallel, batches within a pair in order
     lock = threading.Lock()
-    sys_prompt = system_prompt(p)
     res = RunResult(output=None, records=[], allocation=alloc, pool=pool, harvest=h, warnings=p.warnings())
 
-    def call(topic: Topic, angle: str, quota: int, batch_id: str) -> list[dict]:
+    def call(aud: Audience, topic: Topic, angle: str, quota: int, batch_id: str) -> list[dict]:
         with lock:
-            examples = sampler.pick(topic.code)
-            dnr = list(dedup.texts)
+            examples = sampler.pick(topic.code) if config.AUDIENCE_PROFILES[aud.code]["fewshot"] else []
+            dnr = list(dedup[aud.code].texts)
         count = math.ceil(quota * config.OVERGENERATE)
-        log = {"batchId": batch_id, "topic": topic.code, "angle": angle, "quota": quota, "asked": count}
+        log = {"batchId": batch_id, "audience": aud.code, "topic": topic.code, "angle": angle, "quota": quota,
+               "asked": count}
         try:
-            r = llm.chat_json(sys_prompt, user_prompt(p, topic, angle, count, examples, dnr), model)
+            r = llm.chat_json(sys_prompts[aud.code], user_prompt(p, topic, angle, count, examples, dnr), model)
         except llm.LLMError as e:
             log["error"] = str(e)
             with lock:
@@ -167,7 +203,7 @@ def generate(p: Payload, n: int | None = None, use_autocomplete: bool | None = N
             on_event(f"{batch_id} [{angle}] FAILED: {e}")
             return []
         with lock:
-            b = filter_batch(r.data.get("prompts"), p, dedup, quota)
+            b = filter_batch(r.data.get("prompts"), p, aud.code, dedup[aud.code], quota)
             res.calls += 1
             res.prompt_tokens += r.prompt_tokens
             res.completion_tokens += r.completion_tokens
@@ -177,30 +213,33 @@ def generate(p: Payload, n: int | None = None, use_autocomplete: bool | None = N
         on_event(f"{batch_id} [{angle}] accepted {len(b.accepted)}/{quota}, "
                  f"rejected {sum(b.rejected.values())} {dict(b.rejected) or ''}, duplicates {b.duplicates}")
         refs = [e["id"] for e in examples]
-        return [{**x, "topic": topic.code, "angle": angle, "batchId": batch_id, "referenceIds": refs}
-                for x in b.accepted]
+        return [{**x, "audience": aud.code, "topic": topic.code, "angle": angle, "batchId": batch_id,
+                 "referenceIds": refs} for x in b.accepted]
 
-    def run_topic(topic: Topic) -> list[dict]:
-        quota = alloc[topic.code]
-        angles = angles_for(topic.code, p)
+    def run_pair(pair: tuple[Audience, Topic]) -> list[dict]:
+        aud, topic = pair
+        quota = alloc[aud.code, topic.code]
+        angles = orders[aud.code, topic.code]
+        sizes = batch_sizes(quota)
+        name = f"{aud.code}/{topic.code}"
         out: list[dict] = []
-        for i, size in enumerate(batch_sizes(quota)):
-            out += call(topic, angles[i % len(angles)], size, f"{topic.code}-{i + 1}")
-        used = {r["angle"] for r in out} | {angles[i % len(angles)] for i in range(len(batch_sizes(quota)))}
+        for i, size in enumerate(sizes):
+            out += call(aud, topic, angles[i % len(angles)], size, f"{name}-{i + 1}")
+        used = {angles[i % len(angles)] for i in range(len(sizes))}
         unused = [a for a in angles if a not in used] or angles
         for j in range(config.TOPUP_CALLS):
             short = quota - len(out)
             if short <= 0:
                 break
-            out += call(topic, unused[j % len(unused)], short, f"{topic.code}-topup{j + 1}")
+            out += call(aud, topic, unused[j % len(unused)], short, f"{name}-topup{j + 1}")
         if len(out) < quota:
             with lock:
-                res.warnings.append(f"{topic.code}: returned {len(out)} of {quota} after top-up")
+                res.warnings.append(f"{name}: returned {len(out)} of {quota} after top-up")
         return out
 
-    with ThreadPoolExecutor(max_workers=len(topics)) as ex:
-        per_topic = list(ex.map(run_topic, topics))  # map keeps topic order
-    res.records = [r for recs in per_topic for r in recs]
+    with ThreadPoolExecutor(max_workers=max(1, min(config.MAX_WORKERS, len(pairs)))) as ex:
+        per_pair = list(ex.map(run_pair, pairs))  # map keeps pair order
+    res.records = [r for recs in per_pair for r in recs]
     res.output = assemble(p, res.records)
     res.seconds = time.time() - t0
     return res
@@ -215,24 +254,39 @@ if __name__ == "__main__":
 
     def extra(ap):
         ap.add_argument("--n", type=int, help="override options.maxPrompts")
+        ap.add_argument("--per-pair", type=int, help="override options.promptsPerPair")
         ap.add_argument("--no-sources", action="store_true", help="skip Autocomplete/Trends")
+        ap.add_argument("--offline", action="store_true", help="use only stored Autocomplete/Trends results")
         ap.add_argument("--stage", help="override grounding.stage, e.g. Pre-launch")
         ap.add_argument("--seed", type=int)
         ap.add_argument("--model")
         ap.add_argument("--out", help="output path (default output/<requestId>.json)")
+        ap.add_argument("--dry-run", action="store_true", help="print the LLM prompts per pair, no calls")
 
-    p, a = load_cli("Generate patient prompts end to end", extra)
+    p, a = load_cli("Generate prompts end to end", extra)
     if a.stage:
         p = p.model_copy(update={"grounding": p.grounding.model_copy(update={"stage": a.stage})})
+    opts = {k: v for k, v in {"maxPrompts": a.n, "promptsPerPair": a.per_pair}.items() if v is not None}
+    if opts:  # re-validate so CLI overrides get the same limits as the API
+        p = Payload.model_validate({**p.model_dump(), "options": {**p.options.model_dump(), **opts}})
+    if a.dry_run:
+        dry_run(p, a.seed)
+        raise SystemExit
     off = False if a.no_sources else None
-    r = generate(p, a.n, off, off, a.model, a.seed)
+    r = generate(p, off, off, a.model, a.seed, offline=a.offline)
 
-    print("\n" + "-" * 100)
+    print("\n" + "-" * 120)
     for x in r.records:
-        print(f"{x['topic']:11} {x['intent']:13} {str(x['competitor'] or ''):13} {x['angle'][:22]:22} {x['text']}")
-    got = Counter(x["topic"] for x in r.records)
-    print("-" * 100)
-    print(f"requested {sum(r.allocation.values())} {r.allocation}, returned {len(r.records)} {dict(got)}")
+        print(f"{x['audience'][:9]:9} {x['topic'][:11]:11} {x['intent'][:13]:13} {str(x['competitor'] or ''):13} "
+              f"{x['text']}")
+    got = Counter((x["audience"], x["topic"]) for x in r.records)
+    print("-" * 120)
+    topics = [t.code for t in p.active_topics()]
+    print("returned/requested per pair:")
+    print(f"{'':16}" + "".join(f"{t[:11]:>12}" for t in topics))
+    for aud in p.active_audiences():
+        print(f"{aud.code:16}" + "".join(f"{got[aud.code, t]}/{r.allocation[aud.code, t]}".rjust(12) for t in topics))
+    print(f"requested {sum(r.allocation.values())}, returned {len(r.records)}")
     print(f"{r.calls} LLM calls, tokens in/out {r.prompt_tokens}/{r.completion_tokens}, {r.seconds:.1f}s")
     for w in r.warnings:
         print("WARNING:", w)

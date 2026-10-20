@@ -4,7 +4,10 @@
   "grounding": {
     "brandId": 12,
     "brand": "Brandex",
-    "market": { "name": "United Kingdom", "isoCode": "GB" },
+    "market": {
+      "name": "United Kingdom",
+      "isoCode": "GB"
+    },
     "stage": "Launched",
     "marketAccess": "Reimbursed",
     "websites": {
@@ -12,33 +15,110 @@
       "corporate": "https://pharmaco.com",
       "other": []
     },
-    "diseaseAreas": ["Plaque psoriasis"],
-    "competitors": ["Competitor A", "Competitor B"]
+    "diseaseAreas": [
+      "Plaque psoriasis"
+    ],
+    "competitors": [
+      "Competitor A",
+      "Competitor B"
+    ]
   },
   "audiences": [
-    { "code": "patient", "name": "Patient", "voice": "lay, first person, no jargon" },
-    { "code": "hcp", "name": "HCP", "voice": "clinical, guideline and endpoint terms" },
-    { "code": "policy_payer", "name": "Policy & payer", "voice": "cost-effectiveness, HTA, reimbursement" },
-    { "code": "media_investor", "name": "Media / investor", "voice": "commercial, market, controversy" }
+    {
+      "code": "patient",
+      "name": "Patient",
+      "voice": "lay, first person, no jargon"
+    },
+    {
+      "code": "hcp",
+      "name": "HCP",
+      "voice": "clinical, guideline and endpoint terms"
+    },
+    {
+      "code": "policy_payer",
+      "name": "Policy & payer",
+      "voice": "cost-effectiveness, HTA, reimbursement"
+    },
+    {
+      "code": "media_investor",
+      "name": "Media / investor",
+      "voice": "commercial, market, controversy"
+    }
   ],
   "topics": [
-    { "code": "efficacy", "name": "Efficacy", "categoryId": 3 },
-    { "code": "safety", "name": "Safety", "categoryId": 4 },
-    { "code": "moa", "name": "Mechanism (MOA)", "categoryId": 5 },
-    { "code": "population", "name": "Population & Eligibility", "categoryId": 6 },
-    { "code": "disease", "name": "Disease", "categoryId": 7 },
-    { "code": "access_cost", "name": "Access & Cost", "categoryId": 8 },
-    { "code": "corporate", "name": "Corporate", "categoryId": 9 }
+    {
+      "code": "efficacy",
+      "name": "Efficacy",
+      "categoryId": 3
+    },
+    {
+      "code": "safety",
+      "name": "Safety",
+      "categoryId": 4
+    },
+    {
+      "code": "moa",
+      "name": "Mechanism (MOA)",
+      "categoryId": 5
+    },
+    {
+      "code": "population",
+      "name": "Population & Eligibility",
+      "categoryId": 6
+    },
+    {
+      "code": "disease",
+      "name": "Disease",
+      "categoryId": 7
+    },
+    {
+      "code": "access_cost",
+      "name": "Access & Cost",
+      "categoryId": 8
+    },
+    {
+      "code": "corporate",
+      "name": "Corporate",
+      "categoryId": 9
+    }
   ],
   "existingPrompts": [
-    { "id": "881", "text": "What are the side effects of Brandex?", "category": "Safety", "audience": "" }
+    {
+      "id": "881",
+      "text": "What are the side effects of Brandex?",
+      "category": "Safety",
+      "audience": ""
+    }
   ],
+  "benchmark": {
+    "benchmarkId": 311,
+    "hasBenchmark": true,
+    "publication": "https://example.com/article",
+    "bucketName": "atrion-benchmarks-prod",
+    "documents": [
+      {
+        "documentId": 901,
+        "sequenceNumber": 1,
+        "fileName": "Prescribing-Information.pdf",
+        "contentType": "application/pdf",
+        "sizeBytes": 1834221,
+        "s3ObjectKey": "benchmarks/42/1087/documents/3f9a...c1.pdf"
+      },
+      {
+        "documentId": 902,
+        "sequenceNumber": 2,
+        "fileName": "Claims-Internal-Messages.docx",
+        "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "sizeBytes": 402118,
+        "s3ObjectKey": "benchmarks/42/1087/documents/8b21...e7.docx"
+      }
+    ]
+  },
   "options": {
     "maxPrompts": 47,
     "promptsPerPair": 2,
     "includeCompetitorPrompts": true,
     "includeGoogleTrends": true,
-    "includeAutocomplete": true,
     "includeReddit": true,
     "language": "en-GB"
   }
