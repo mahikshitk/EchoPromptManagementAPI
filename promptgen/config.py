@@ -118,6 +118,11 @@ TEMPERATURE = 0.8
 TIMEOUT_S = 60
 RETRIES = 3
 
+# API jobs
+REQUIRED_SCOPE = "run-management/run:management"  # same scope RunManagementAPI's UI tokens carry
+MAX_ACTIVE_GENERATIONS = 2   # per user, queued or running
+GENERATION_STALE_S = 900     # an unfinished job untouched this long is reported failed (worker timeout is 600s)
+
 # ANGLES[topic][audience]: one angle per LLM call, order shuffled each run. VS_COMPETITOR is
 # expanded per competitor and only used when includeCompetitorPrompts is on. Keep angles
 # market-neutral; the system prompt asks for the market's own terms (NHS, NICE, ...).
@@ -234,6 +239,7 @@ AC_SLEEP_S = 0.3
 TRENDS_SLEEP_S = 2
 CACHE_PATH = ".cache/harvest.sqlite"
 CACHE_TTL_S = 7 * 24 * 3600
+HARVEST_MAX_TEXT = 500  # longer results are dropped (the AtrionDB column rejects them)
 QUESTION_WORDS = (
     "what", "how", "is", "are", "can", "does", "do", "should", "will",
     "why", "when", "where", "which", "who",

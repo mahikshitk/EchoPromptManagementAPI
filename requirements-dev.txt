@@ -1,0 +1,5 @@
+# local runs and tests; boto3 is already in the Lambda runtime, so it is not shipped
+-r requirements.txt
+boto3
+uvicorn
+pytest

@@ -162,12 +162,17 @@ class RunResult:
 
 
 def generate(p: Payload, use_autocomplete: bool | None = None, use_trends: bool | None = None,
-             model: str | None = None, seed: int | None = None, on_event=print, offline: bool = False) -> RunResult:
+             model: str | None = None, seed: int | None = None, on_event=print, offline: bool = False,
+             on_progress=None) -> RunResult:
+    """on_progress(pairs_done, pairs_total) is called once before harvesting and after each pair."""
     t0 = time.time()
     alloc = p.allocate(seed)
     orders = angle_orders(p, alloc, seed)
     pairs = [(a, t) for a, t in p.pairs() if alloc[a.code, t.code]]
     on_event(f"Allocation: {sum(alloc.values())} prompts over {len(pairs)} pairs")
+    progress = on_progress or (lambda done, total: None)
+    progress(0, len(pairs))
+    pairs_done = 0
 
     # harvested Google searches are style examples for few-shot audiences only (patient)
     h = HarvestResult()
@@ -236,9 +241,13 @@ def generate(p: Payload, use_autocomplete: bool | None = None, use_trends: bool 
             if short <= 0:
                 break
             out += call(aud, topic, unused[j % len(unused)], short, f"{name}-topup{j + 1}")
-        if len(out) < quota:
-            with lock:
+        nonlocal pairs_done
+        with lock:
+            if len(out) < quota:
                 res.warnings.append(f"{name}: returned {len(out)} of {quota} after top-up")
+            pairs_done += 1
+            done = pairs_done
+        progress(done, len(pairs))  # outside the lock: it may be a network call
         return out
 
     with ThreadPoolExecutor(max_workers=max(1, min(config.MAX_WORKERS, len(pairs)))) as ex:

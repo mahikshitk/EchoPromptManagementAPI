@@ -1,0 +1,3 @@
+# pinned with the CDK CLI in package.json: a newer library can need a newer CLI to read its cloud assembly
+aws-cdk-lib==2.274.0
+constructs==10.8.1

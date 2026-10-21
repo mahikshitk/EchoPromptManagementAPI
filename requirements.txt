@@ -1,9 +1,9 @@
 httpx
 fastapi
 mangum
-uvicorn
-boto3
 pydantic>=2
 pytrends
 pandas<3  # pytrends is unmaintained; pandas 3 breaks it
 python-dotenv
+PyJWT[crypto]
+psycopg[binary]
