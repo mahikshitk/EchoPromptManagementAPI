@@ -48,6 +48,9 @@ A failed or timed-out generation (no progress for 15 min) reports `status: faile
 the cause is in the worker's logs and the table's `error` column. Run warnings (unknown codes, short pairs,
 failed LLM calls) are logged, not returned, since the output schema is fixed. `GET /health` needs no token.
 
+Swagger UI is at `<ApiUrl>/docs` (no token needed to open it). To call `/generate` from it, click **Authorize**
+and paste a Cognito **access** token (not the ID token); it is kept across page reloads.
+
 Locally, set `AUTH_DISABLED=1` (never in AWS): jobs live in memory and run on a background thread.
 
 ```
@@ -108,7 +111,7 @@ npx cdk deploy PromptManagement-<env> \
   -c openRouterModel=<optional model id>
 ```
 
-The `ApiUrl` output is the UI's base URL.
+The `ApiUrl` output is the UI's base URL; `SwaggerUrl` is its Swagger UI.
 
 Normally, deploy from GitHub Actions instead: **Actions > Deploy > Run workflow** with the target environment
 (OIDC role, no stored AWS keys). The one-time AWS and GitHub environment setup is in

@@ -35,6 +35,16 @@ def test_health_needs_no_token():
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_swagger_offers_bearer_auth_on_generation_routes_only():
+    assert client.get("/docs").status_code == 200
+    spec = client.get("/openapi.json").json()
+    assert spec["components"]["securitySchemes"]["HTTPBearer"] == {
+        "type": "http", "scheme": "bearer", "description": "Cognito access token (not the ID token)"}
+    assert spec["paths"]["/generate"]["post"]["security"] == [{"HTTPBearer": []}]
+    assert spec["paths"]["/generate/{generationId}"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert "security" not in spec["paths"]["/health"]["get"]
+
+
 def test_generate_then_poll(store):
     d = sample()
     r = client.post("/generate", json=d, headers=bearer())

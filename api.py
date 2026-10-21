@@ -20,7 +20,8 @@ from promptgen.schema import Output, Payload
 log = logging.getLogger("promptgen.api")
 setup_logging()
 
-app = FastAPI(title="Echo Prompt Generator")
+app = FastAPI(title="Echo Prompt Generator",
+              swagger_ui_parameters={"persistAuthorization": True})  # keep the pasted token across reloads
 SCOPE = os.getenv("AUTH_REQUIRED_SCOPE") or config.REQUIRED_SCOPE
 
 

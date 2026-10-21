@@ -136,6 +136,7 @@ class PromptManagementStack(cdk.Stack):
 
         http_api = self._http_api(prefix, authority, ui_clients, api_function, config)
         cdk.CfnOutput(self, "ApiUrl", value=http_api.api_endpoint)
+        cdk.CfnOutput(self, "SwaggerUrl", value=f"{http_api.api_endpoint}/docs")
 
     def _http_api(self, prefix: str, authority: str, ui_clients: list[str], api_function: lambda_.IFunction,
                   config: DeploymentConfiguration) -> apigw.HttpApi:
