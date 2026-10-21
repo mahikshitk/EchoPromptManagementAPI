@@ -91,10 +91,14 @@ class PostgresJobs:
     def create(self, job: dict, max_active: int, window_s: int) -> bool:
         from psycopg.types.json import Jsonb
 
+        # explicit casts: in INSERT ... SELECT the select list gives untyped parameters no target type, and
+        # %(sub)s appears twice, so PostgreSQL would deduce text and varchar for it (AmbiguousParameter)
         cur = self._execute(
             f"INSERT INTO {TABLE} (generationid, cognitosub, requestid, runid, status, payload)"
-            " SELECT %(id)s, %(sub)s, %(requestId)s, %(runId)s, 'queued', %(payload)s"
-            f" WHERE (SELECT count(*) FROM {TABLE} WHERE cognitosub = %(sub)s AND status IN ('queued', 'running')"
+            " SELECT %(id)s::uuid, %(sub)s::varchar, %(requestId)s::varchar, %(runId)s::varchar, 'queued',"
+            " %(payload)s"
+            f" WHERE (SELECT count(*) FROM {TABLE} WHERE cognitosub = %(sub)s::varchar"
+            " AND status IN ('queued', 'running')"
             "        AND createdat > now() - make_interval(secs => %(window)s)) < %(max)s",
             {"id": job["generationId"], "sub": job["ownerSub"], "requestId": job["requestId"], "runId": job["runId"],
              "payload": Jsonb(job["payload"]), "window": window_s, "max": max_active})

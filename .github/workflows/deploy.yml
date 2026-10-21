@@ -25,7 +25,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    services:
+      postgres:  # scratch database for the PostgreSQL store tests (they drop and recreate the tables)
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       AWS_REGION: ${{ vars.AWS_REGION }}
